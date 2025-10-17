@@ -9,7 +9,6 @@ It automatically caches and purges model data on `created`, `updated`, and `dele
 
 ```bash
 composer require devituz/laravel-cachable
------
 ```
 
 
