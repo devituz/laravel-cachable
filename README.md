@@ -15,7 +15,7 @@ composer require devituz/laravel-cachable
 
 #### Add model
 ```php
-use HasFactory,Cachable;
+use Cachable;
 ```
 
 
