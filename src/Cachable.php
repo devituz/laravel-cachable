@@ -14,27 +14,42 @@ trait Cachable
         return in_array($lang, $this->supportedLangs) ? $lang : 'uz';
     }
 
-    protected function getCacheKey($id = null, $lang = 'uz'): string
+
+    protected function getCacheKey($id = null, $lang = 'uz', $params = []): string
     {
         $lang = $this->validateLang($lang);
         $model = strtolower(class_basename($this));
         $langSuffix = "_{$lang}";
-        return $id ? "{$model}_{$id}{$langSuffix}" : "{$model}_all{$langSuffix}";
+
+        if ($id) {
+            return "{$model}_{$id}{$langSuffix}";
+        }
+
+        if (!empty($params)) {
+            $paramString = implode('_', array_map(fn($k, $v) => "{$k}_{$v}", array_keys($params), $params));
+            return "{$model}_all_{$paramString}{$langSuffix}";
+        }
+
+        return "{$model}_all{$langSuffix}";
     }
 
-    /**
-     * Retrieve all records with source info (redis/db)
-     */
-    public static function allCached($lang = 'uz')
+    public static function allCached($lang = 'uz', $params = [])
     {
         $instance = new static;
         $lang = $instance->validateLang($lang);
-        $key = $instance->getCacheKey(null, $lang);
+
+        $key = $instance->getCacheKey(null, $lang, $params);
 
         $source = Cache::store('redis')->has($key) ? 'redis' : 'db';
 
-        $data = Cache::store('redis')->rememberForever($key, function () use ($instance, $lang) {
-            return $instance->latest()->get()->map(fn($item) => $item->toArray($lang))->all();
+        $data = Cache::store('redis')->rememberForever($key, function () use ($instance, $lang, $params) {
+            $query = $instance->latest();
+
+            foreach ($params as $column => $value) {
+                $query->where($column, $value);
+            }
+
+            return $query->get()->map(fn($item) => $item->toArray($lang))->all();
         });
 
         return [
@@ -43,27 +58,25 @@ trait Cachable
         ];
     }
 
-    /**
-     * Cache a single record
-     */
-    public function cacheSingle($lang = 'uz'): void
+
+    public function cacheSingle($lang = 'uz', $params = []): void
     {
         $lang = $this->validateLang($lang);
+        $key = $this->getCacheKey($this->id, $lang, $params);
+
         Cache::store('redis')->put(
-            $this->getCacheKey($this->id, $lang),
+            $key,
             $this->toArray($lang),
             3600
         );
     }
 
-    /**
-     * Retrieve a single record with source info (redis/db)
-     */
-    public static function getCached($id, $lang = 'uz')
+
+    public static function getCached($id, $lang = 'uz', $params = [])
     {
         $instance = new static;
         $lang = $instance->validateLang($lang);
-        $key = $instance->getCacheKey($id, $lang);
+        $key = $instance->getCacheKey($id, $lang, $params);
 
         $source = Cache::store('redis')->has($key) ? 'redis' : 'db';
 
@@ -78,11 +91,11 @@ trait Cachable
         ];
     }
 
-    public function forgetCache(): void
+    public function forgetCache($params = []): void
     {
         foreach ($this->supportedLangs as $lang) {
-            Cache::store('redis')->forget($this->getCacheKey($this->id, $lang));
-            Cache::store('redis')->forget($this->getCacheKey(null, $lang));
+            Cache::store('redis')->forget($this->getCacheKey($this->id, $lang, $params));
+            Cache::store('redis')->forget($this->getCacheKey(null, $lang, $params));
         }
     }
 
