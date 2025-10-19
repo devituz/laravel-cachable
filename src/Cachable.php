@@ -28,7 +28,7 @@ trait Cachable
             $paramPairs = [];
             foreach ($params as $k => $v) {
                 if (is_array($v)) {
-                    $v = implode('-', array_map('strval', $v)); // massivni stringga aylantiramiz
+                    $v = implode('-', array_map('strval', $v));
                 }
                 $paramPairs[] = "{$k}_{$v}";
             }
