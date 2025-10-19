@@ -26,7 +26,13 @@ trait Cachable
         }
 
         if (!empty($params)) {
-            $paramString = implode('_', array_map(fn($k, $v) => "{$k}_{$v}", array_keys($params), $params));
+            $paramString = implode('_', array_map(function ($k, $v) {
+                if (is_array($v)) {
+                    $v = implode('-', $v);
+                }
+                return "{$k}_{$v}";
+            }, array_keys($params), $params));
+
             return "{$model}_all_{$paramString}{$langSuffix}";
         }
 
@@ -46,7 +52,11 @@ trait Cachable
             $query = $instance->latest();
 
             foreach ($params as $column => $value) {
-                $query->where($column, $value);
+                if (is_array($value)) {
+                    $query->whereIn($column, $value);
+                } else {
+                    $query->where($column, $value);
+                }
             }
 
             return $query->get()->map(fn($item) => $item->toArray($lang))->all();
