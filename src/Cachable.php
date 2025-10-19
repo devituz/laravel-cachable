@@ -14,7 +14,6 @@ trait Cachable
         return in_array($lang, $this->supportedLangs) ? $lang : 'uz';
     }
 
-
     protected function getCacheKey($id = null, $lang = 'uz', $params = []): string
     {
         $lang = $this->validateLang($lang);
@@ -26,12 +25,19 @@ trait Cachable
         }
 
         if (!empty($params)) {
-            $paramString = implode('_', array_map(function ($k, $v) {
+            $paramPairs = [];
+            foreach ($params as $k => $v) {
                 if (is_array($v)) {
-                    $v = implode('-', $v);
+                    $v = implode('-', array_map('strval', $v)); // massivni stringga aylantiramiz
                 }
-                return "{$k}_{$v}";
-            }, array_keys($params), $params));
+                $paramPairs[] = "{$k}_{$v}";
+            }
+
+            $paramString = implode('_', $paramPairs);
+
+            if (strlen($paramString) > 100) {
+                $paramString = md5($paramString);
+            }
 
             return "{$model}_all_{$paramString}{$langSuffix}";
         }
@@ -68,7 +74,6 @@ trait Cachable
         ];
     }
 
-
     public function cacheSingle($lang = 'uz', $params = []): void
     {
         $lang = $this->validateLang($lang);
@@ -80,7 +85,6 @@ trait Cachable
             3600
         );
     }
-
 
     public static function getCached($id, $lang = 'uz', $params = [])
     {
