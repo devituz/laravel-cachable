@@ -3,25 +3,45 @@
 namespace Devituz\LaravelCachable;
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 trait Cachable
 {
+
     protected array $supportedLangs = ['uz', 'ru', 'en'];
+    protected int $cacheTtl = 3600;
+    protected string $cachePrefix = '';
+
+    public function getSupportedLangs(): array
+    {
+        return property_exists($this, 'supportedLangs') ? $this->supportedLangs : ['uz', 'ru', 'en'];
+    }
+
+    public function getCacheTtl(): int
+    {
+        return property_exists($this, 'cacheTtl') ? $this->cacheTtl : 3600;
+    }
+
+    public function getCachePrefix(): string
+    {
+        return property_exists($this, 'cachePrefix') ? $this->cachePrefix : strtolower(class_basename($this));
+    }
+
 
     protected function validateLang(?string $lang): string
     {
         $lang = strtolower($lang ?? 'uz');
-        return in_array($lang, $this->supportedLangs) ? $lang : 'uz';
+        return in_array($lang, $this->getSupportedLangs()) ? $lang : 'uz';
     }
 
     protected function getCacheKey($id = null, $lang = 'uz', $params = []): string
     {
         $lang = $this->validateLang($lang);
-        $model = strtolower(class_basename($this));
+        $prefix = $this->getCachePrefix();
         $langSuffix = "_{$lang}";
 
         if ($id) {
-            return "{$model}_{$id}{$langSuffix}";
+            return "{$prefix}_{$id}{$langSuffix}";
         }
 
         if (!empty($params)) {
@@ -39,22 +59,23 @@ trait Cachable
                 $paramString = md5($paramString);
             }
 
-            return "{$model}_all_{$paramString}{$langSuffix}";
+            return "{$prefix}_all_{$paramString}{$langSuffix}";
         }
 
-        return "{$model}_all{$langSuffix}";
+        return "{$prefix}_all{$langSuffix}";
     }
 
     public static function allCached($lang = 'uz', $params = [])
     {
         $instance = new static;
         $lang = $instance->validateLang($lang);
-
         $key = $instance->getCacheKey(null, $lang, $params);
+
+        Log::info("allCached key: {$key}");
 
         $source = Cache::store('redis')->has($key) ? 'redis' : 'db';
 
-        $data = Cache::store('redis')->rememberForever($key, function () use ($instance, $lang, $params) {
+        $data = Cache::store('redis')->remember($key, $instance->getCacheTtl(), function () use ($instance, $lang, $params) {
             $query = $instance->latest();
 
             foreach ($params as $column => $value) {
@@ -65,7 +86,7 @@ trait Cachable
                 }
             }
 
-            return $query->get()->map(fn($item) => $item->toArray($lang))->all();
+            return $query->get()->map(fn($item) => method_exists($item, 'toArray') ? $item->toArray($lang) : $item->toArray())->all();
         });
 
         return [
@@ -79,10 +100,12 @@ trait Cachable
         $lang = $this->validateLang($lang);
         $key = $this->getCacheKey($this->id, $lang, $params);
 
+        Log::info("Caching single key: {$key}");
+
         Cache::store('redis')->put(
             $key,
-            $this->toArray($lang),
-            3600
+            method_exists($this, 'toArray') ? $this->toArray($lang) : $this->toArray(),
+            $this->getCacheTtl()
         );
     }
 
@@ -92,11 +115,13 @@ trait Cachable
         $lang = $instance->validateLang($lang);
         $key = $instance->getCacheKey($id, $lang, $params);
 
+        Log::info("getCached key: {$key}");
+
         $source = Cache::store('redis')->has($key) ? 'redis' : 'db';
 
-        $data = Cache::store('redis')->remember($key, 3600, function () use ($id, $instance, $lang) {
+        $data = Cache::store('redis')->remember($key, $instance->getCacheTtl(), function () use ($id, $instance, $lang) {
             $item = $instance->find($id);
-            return $item ? $item->toArray($lang) : null;
+            return $item ? (method_exists($item, 'toArray') ? $item->toArray($lang) : $item->toArray()) : null;
         });
 
         return [
@@ -107,26 +132,27 @@ trait Cachable
 
     public function forgetCache($params = []): void
     {
-        foreach ($this->supportedLangs as $lang) {
-            Cache::store('redis')->forget($this->getCacheKey($this->id, $lang, $params));
-            Cache::store('redis')->forget($this->getCacheKey(null, $lang, $params));
+        foreach ($this->getSupportedLangs() as $lang) {
+            $singleKey = $this->getCacheKey($this->id, $lang, $params);
+            $allKey = $this->getCacheKey(null, $lang, $params);
+            Log::info("Forgetting cache keys: {$singleKey}, {$allKey}");
+            Cache::store('redis')->forget($singleKey);
+            Cache::store('redis')->forget($allKey);
         }
     }
 
     protected static function bootCachable(): void
     {
         static::created(function ($model) {
-            foreach ($model->supportedLangs as $lang) {
+            foreach ($model->getSupportedLangs() as $lang) {
                 $model->cacheSingle($lang);
             }
-            $model->forgetCache();
         });
 
         static::updated(function ($model) {
-            foreach ($model->supportedLangs as $lang) {
+            foreach ($model->getSupportedLangs() as $lang) {
                 $model->cacheSingle($lang);
             }
-            $model->forgetCache();
         });
 
         static::deleted(function ($model) {
