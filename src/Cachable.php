@@ -24,13 +24,8 @@ trait Cachable
 
     public function getCachePrefix(): string
     {
-        if (property_exists($this, 'cachePrefix') && !empty($this->cachePrefix)) {
-            return $this->cachePrefix;
-        }
-
-        return strtolower(class_basename(static::class));
+        return property_exists($this, 'cachePrefix') ? $this->cachePrefix : strtolower(class_basename($this));
     }
-
 
 
     protected function validateLang(?string $lang): string
